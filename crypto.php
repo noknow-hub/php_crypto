@@ -1,6 +1,7 @@
 <?php
 //////////////////////////////////////////////////////////////////////
 // crypto.php
+//
 // @usage
 //
 //     1. Load this file.
@@ -55,6 +56,25 @@
 //             $crypto->VerifyCTR($plainText, $cipherText, $key)
 //             --------------------------------------------------
 //
+//         3-3. When using a token with time limit.
+//
+//             --------------------------------------------------
+//             // time limit is 5 minutes from now.
+//             $limit = 60 * 5;  // 300 seconds.
+//
+//             // Encryption with CBC mode.
+//             $cipherText = $crypto->GenTokenCBC($plainText, $limit, $key);
+//
+//             // Verify with CBC mode.
+//             $ok = $crypto->VerifyTokenCBC($plainText, $cipherText, $key);
+//  
+//             // Encryption with CTR mode.
+//             $cipherText = $crypto->GenTokenCTR($plainText, $limit, $key);
+//  
+//             // Verify with CTR mode.
+//             $ok = $crypto->VerifyTokenCTR($plainText, $cipherText, $key);
+//             --------------------------------------------------
+//
 //
 // MIT License
 //
@@ -79,6 +99,8 @@
 //////////////////////////////////////////////////////////////////////
 
 namespace noknow\lib\crypto\crypto;
+
+use DateTime;
 
 class Crypto {
 
@@ -109,7 +131,7 @@ class Crypto {
         if($encrypted === FALSE) {
             return NULL;
         }
-        $cipherText = bin2hex($encrypted . ':' . $iv);
+        $cipherText = bin2hex($encrypted . ':::' . $iv);
         return $cipherText;
     }
 
@@ -122,14 +144,14 @@ class Crypto {
         if($rawData === FALSE) {
             return NULL;
         }
-        $rawData = explode(':', $rawData);
+        $rawData = explode(':::', $rawData);
         if(count($rawData) !== 2) {
             return NULL;
         }
         $encrypted = $rawData[0];
         $iv = $rawData[1];
         $plainText = openssl_decrypt($encrypted, self::METHOD_CBC, $key, OPENSSL_RAW_DATA, $iv);
-        if($decrypted === FALSE) {
+        if($plainText === FALSE) {
             return NULL;
         }
         return $plainText;
@@ -163,7 +185,7 @@ class Crypto {
         if($encrypted === FALSE) {
             return NULL;
         }
-        $cipherText = bin2hex($encrypted . ':' . $nonce);
+        $cipherText = bin2hex($encrypted . ':::' . $nonce);
         return $cipherText;
     }
 
@@ -176,14 +198,14 @@ class Crypto {
         if($rawData === FALSE) {
             return NULL;
         }
-        $rawData = explode(':', $rawData);
+        $rawData = explode(':::', $rawData);
         if(count($rawData) !== 2) {
             return NULL;
         }
         $encrypted = $rawData[0];
         $nonce = $rawData[1];
         $plainText = openssl_decrypt($encrypted, self::METHOD_CTR, $key, OPENSSL_RAW_DATA, $nonce);
-        if($decrypted === FALSE) {
+        if($plainText === FALSE) {
             return NULL;
         }
         return $plainText;
@@ -203,6 +225,82 @@ class Crypto {
         } else {
             return FALSE;
         }
+    }
+
+
+    //////////////////////////////////////////////////
+    // Generate a token with time limit using CBC mode.
+    //////////////////////////////////////////////////
+    public function GenTokenCBC(string $plainText, int $secondLimit, string $key, string $iv = NULL): ?string {
+        $expires = new DateTime();
+        $expires->modify('+' . $secondLimit . ' seconds');
+        $token = array(
+            'data' => $plainText,
+            'expires' => $expires->getTimestamp(),
+        );
+        $jsonStr = json_encode($token);
+        if($jsonStr === FALSE) {
+            return NULL;
+        }
+        return $this->EncryptCBC($jsonStr, $key, $iv);
+    }
+
+
+    //////////////////////////////////////////////////
+    // Verify a token with time limit using CBC mode.
+    //////////////////////////////////////////////////
+    public function VerifyTokenCBC(string $plainText, string $cipherText, string $key): bool {
+        $decrypted = $this->DecryptCBC($cipherText, $key);
+        if(is_null($decrypted)) {
+            return FALSE;
+        }
+        $json = json_decode($decrypted, TRUE);
+        if(is_null($json)) {
+            return FALSE;
+        }
+        if($plainText !== $json['data']) {
+            return FALSE;
+        }
+        $now = new DateTime();
+        return $json['expires'] > $now->getTimestamp();
+    }
+
+
+    //////////////////////////////////////////////////
+    // Generate a token with time limit using CTR mode.
+    //////////////////////////////////////////////////
+    public function GenTokenCTR(string $plainText, int $secondLimit, string $key, string $nonce = NULL): ?string {
+        $expires = new DateTime();
+        $expires->modify('+' . $secondLimit . ' seconds');
+        $token = array(
+            'data' => $plainText,
+            'expires' => $expires->getTimestamp(),
+        );
+        $jsonStr = json_encode($token);
+        if($jsonStr === FALSE) {
+            return NULL;
+        }
+        return $this->EncryptCTR($jsonStr, $key, $nonce);
+    }
+
+
+    //////////////////////////////////////////////////
+    // Verify a token with time limit using CTR mode.
+    //////////////////////////////////////////////////
+    public function VerifyTokenCTR(string $plainText, string $cipherText, string $key): bool {
+        $decrypted = $this->DecryptCTR($cipherText, $key);
+        if(is_null($decrypted)) {
+            return FALSE;
+        }
+        $json = json_decode($decrypted, TRUE);
+        if(is_null($json)) {
+            return FALSE;
+        }
+        if($plainText !== $json['data']) {
+            return FALSE;
+        }
+        $now = new DateTime();
+        return $json['expires'] > $now->getTimestamp();
     }
 
 }
